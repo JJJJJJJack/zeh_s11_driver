@@ -1,0 +1,12 @@
+<launch>
+  <!-- 串口和波特率参数配置 -->
+  <arg name="port" default="/dev/ttyUSB0" />  <!-- 默认串口设备 -->
+  <arg name="baudrate" default="9600" />     <!-- 默认波特率 -->
+
+  <!-- 启动传感器驱动节点 -->
+  <node name="zeh_s11_driver" pkg="zeh_s11_driver" type="zeh_s11_driver" output="screen">
+    <param name="port" type="string" value="$(arg port)" />
+    <param name="baudrate" type="int" value="$(arg baudrate)" />
+  </node>
+
+</launch>
