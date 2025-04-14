@@ -4,7 +4,10 @@
 #include <sensor_msgs/RelativeHumidity.h>
 #include <std_msgs/Float32MultiArray.h>
 
-#define PACKET_LENGTH 22 // 数据帧长度
+//#define DEBUG_OUTPUT
+
+#define SENSOR_NUMBER 4
+#define PACKET_LENGTH (6+SENSOR_NUMBER*2) // 数据帧长度
 #define START_BYTE 0xFF
 #define CMD_BYTE 0x86
 
@@ -21,10 +24,10 @@ private:
     // 校验和计算（与文档一致）
     unsigned char checksum(unsigned char *data, unsigned char len) {
         unsigned short sum = 0;
-        for (int i = 1; i < len - 1; i++) {
+        for (int i = 1; i < len; i++) {
             sum += data[i];
         }
-        return (0xFF - (sum % 256) + 1);
+        return (~(sum % 256) + 1);
     }
 
 public:
@@ -50,32 +53,39 @@ public:
     }
 
     void run() {
-        uint8_t buffer[PACKET_LENGTH];
+        uint8_t buffer[PACKET_LENGTH+1];
         while (ros::ok()) {
             if (ser.available()) {
                 // 寻找起始位0xFF
                 ser.read(buffer, 1);
                 if (buffer[0] != START_BYTE) continue;
 
-                // 读取剩余21字节
-                size_t bytes_read = ser.read(buffer + 1, PACKET_LENGTH - 1);
-                if (bytes_read != PACKET_LENGTH - 1) {
+                // 读取剩余字节
+                size_t bytes_read = ser.read(buffer + 1, PACKET_LENGTH);
+                if (bytes_read != PACKET_LENGTH) {
                     ROS_WARN("Incomplete packet");
                     continue;
                 }
-
+#ifdef DEBUG_OUTPUT
+                printf("%d\n", PACKET_LENGTH);
+                for(int i=0; i < PACKET_LENGTH+1; i++){
+                    printf("%x ", buffer[i]);
+                }
+                printf("\n");
+                printf("%x   %x\n", buffer[PACKET_LENGTH], checksum(buffer, PACKET_LENGTH) );
+#endif
                 // 校验命令字和校验和
-                if (buffer[1] != CMD_BYTE || buffer[21] != checksum(buffer, PACKET_LENGTH)) {
+                if (buffer[1] != CMD_BYTE || buffer[PACKET_LENGTH] != checksum(buffer, PACKET_LENGTH)) {
                     ROS_WARN("Invalid packet");
                     continue;
                 }
 
                 // 解析数据
                 std_msgs::Float32MultiArray gas_msg;
-                gas_msg.data.resize(8); // S1-S8（或替代位置）
+                gas_msg.data.resize(SENSOR_NUMBER); // S1-S8（或替代位置）
 
                 // 解析气体浓度（示例仅解析S1-S4，其余类似）
-                for (int i = 0; i < 8; i++) {
+                for (int i = 0; i < SENSOR_NUMBER; i++) {
                     int high = buffer[2 + 2 * i];
                     int low = buffer[3 + 2 * i];
                     // 检查故障码0xFF00
@@ -88,13 +98,13 @@ public:
                 }
 
                 // 解析温度（单位：℃）
-                int temp_high = buffer[18];
-                int temp_low = buffer[19];
+                int temp_high = buffer[2+SENSOR_NUMBER*2];
+                int temp_low = buffer[3+SENSOR_NUMBER*2];
                 float temperature = (temp_high * 256.0 + temp_low - 500) * 0.1;
 
                 // 解析湿度（单位：%RH）
-                int humid_high = buffer[20];
-                int humid_low = buffer[21];
+                int humid_high = buffer[4+SENSOR_NUMBER*2];
+                int humid_low = buffer[5+SENSOR_NUMBER*2];
                 float humidity = (humid_high * 256.0 + humid_low) * 0.1;
 
                 // 发布消息
